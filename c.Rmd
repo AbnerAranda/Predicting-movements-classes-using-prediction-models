@@ -1,0 +1,144 @@
+---
+title: "Predicting movements classes using prediction models"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har>.
+
+# Data 
+
+The training data for this project are available here:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+If you don't have the data on your computer you want to download it
+
+```{r}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./Desktop/pml-training.csv"
+testFile  <- "./Desktop/pml-testing.csv"
+if (!file.exists("./Desktop")) {
+  dir.create("./Desktop")
+}
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile, method="curl")
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile, method="curl")
+}
+```
+
+#Load and cleaning data
+
+Let's download our data
+```{r}
+trainData <- read.csv("~/Desktop/pml-training.csv")
+testData <- read.csv("~/Desktop/pml-testing.csv")
+```
+
+Before we continue lets download the Caret and randomForest libraries
+```{r, message = FALSE}
+library(caret)
+library(randomForest)
+```
+
+Now we proceed to clean our train data, getting rid of all null or NA values
+
+```{r}
+trainset <- createDataPartition(trainData$classe, p=0.8, list=FALSE)
+training <- trainData[trainset,]
+val <- trainData[-trainset,]
+zeros <- nearZeroVar(training)
+training <- training[,-zeros]
+cnlength <- sapply(training, function(x){sum(!(is.na(x)|x==""))})
+nullcol <- names(cnlength[cnlength<0.6*length(training$classe)])
+discardCol <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2",
+                "cvtd_timestamp","new_window","num_window")
+exclude <- c(discardCol, nullcol)
+training <- training[, !names(training) %in% exclude]
+```
+
+#Model Validation
+
+Now we make our prediction model. We're going to start with the Rndom Forest Model. We're gonna evaluate it using the train data.
+
+```{r}
+forestModel <- randomForest(factor(classe) ~., data = training, importance=TRUE, ntrees=10)
+predTraining <- predict(forestModel, training)
+info <- confusionMatrix(predTraining, factor(training$classe))
+info
+```
+
+As expected, the accuracy with known data is about 100%. Let's see how does it work with unknown data.
+
+```{r}
+set.seed(420)
+predVal <- predict(forestModel, val)
+valinfo <- confusionMatrix(predVal, factor(val $classe))
+valinfo
+```
+
+We see that the Random Forest Model is very accurate, with a 99.52% of correct predictions. Before we make a prediction with our test data, lets compare Random Forest with another model. In my work im going to analyse the gbm model.
+
+```{r}
+capture.output(gbmModel <- train(factor(classe) ~., data=training, method="gbm"))
+predgbm <- predict(gbmModel,training)
+gbmTrain <- confusionMatrix(predgbm, factor(training$classe))
+gbmTrain
+```
+
+The GBM model isn't as accurate as the Random Forest. While the first one scored a 100% on the known data, our GBM model scored a 97.35%, a significant drop, specially for known data.
+
+```{r}
+predgbmval <- predict(gbmModel, val)
+gbmVal <- confusionMatrix(predgbmval, factor(val$classe))
+gbmVal
+```
+
+The accurate was about 95.79%, which compared with the Random Forest Model, is significant low.
+
+#Test set prediction
+
+Let's evaluate the prediction of both our models
+
+Forest
+```{r}
+forestest <- predict(forestModel, testData)
+forestest
+```
+
+GBM
+```{r}
+gbmTest <- predict(gbmModel, testData)
+gbmTest
+```
+
+Lets save the result of the Random forest test in a file, because it was the most accurate for this exercise.
+
+```{r}
+answers <- as.vector(forestest)
+
+pml_write_files = function(x) {
+    n = length(x)
+    for (i in 1:n) {
+        filename = paste0("problem_id_", i, ".txt")
+        write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, 
+            col.names = FALSE)
+    }
+}
+
+pml_write_files(answers)
+```
+
+#Conclusion
+
+There's a variery of prediction models you can create with R, all with different techniques and efficiency levels. In this proyect we where looking for the most accurate model, but in another time we may want to research the fastest model instead. As a data scientist is your job to determine the most adecuate model for your proyect.
